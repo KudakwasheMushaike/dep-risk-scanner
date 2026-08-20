@@ -1,4 +1,4 @@
-// src/mergeVulnSources.js
+import semver from "semver";
 
 export function mergeVulnSources(osvReport, ghsaResults, extractGhsaVulnInfo) {
   const merged = {};
@@ -26,10 +26,22 @@ export function mergeVulnSources(osvReport, ghsaResults, extractGhsaVulnInfo) {
         existingIds.has(info.id) || (info.cve && existingIds.has(info.cve));
       if (!alreadyHave) {
         merged[nameAtVersion].vulnerabilities.push(info);
-        existingIds.add(info.id);
-        if (info.cve) existingIds.add(info.cve);
       }
     }
+  }
+
+  // roll up each package's vulnerabilities into one recommended upgrade
+  // target — the highest fixed version across all of them. A later
+  // patch almost always still contains earlier security fixes, so one
+  // upgrade typically resolves everything rather than needing separate
+  // upgrades per vulnerability.
+  for (const entry of Object.values(merged)) {
+    const fixedVersions = entry.vulnerabilities
+      .map((v) => v.fixedVersion)
+      .filter(Boolean);
+    entry.recommendedUpgrade = fixedVersions.length
+      ? fixedVersions.sort(semver.rcompare)[0]
+      : null;
   }
 
   return Object.values(merged);
