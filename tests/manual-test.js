@@ -1,17 +1,4 @@
-// import {
-//   readPackageFile,
-//   extractDependencyNames,
-//   parsePackageLock,
-// } from "../src/parsers/npm.js";
-import { readFileSync, writeFileSync } from "node:fs";
-
-// const result = readPackageFile("./tests/sample-package.json");
-// // console.log(extractDependencyNames(result));
-
-// const graph = parsePackageLock("./tests/sample-lockfile.json");
-// // console.log(graph);
-// writeFileSync("./tests/graph-output.json", JSON.stringify(graph, null, 2));
-
+// tests/manual-test.js
 import {
   readPackageFile,
   extractDependencyNames,
@@ -22,29 +9,52 @@ import {
   queryOsvBatch,
   uniqueVulnIDs,
   fetchFullDetails,
+  buildVulnerabilityReport,
 } from "../src/vulnSources/osv.js";
+import {
+  queryGhsaBatch,
+  extractGhsaVulnInfo,
+} from "../src/vulnSources/ghsa.js";
+import { mergeVulnSources } from "../src/merge.js";
 
+// --- Step 1: parse manifests ---
 const pkgObj = readPackageFile("./tests/sample-package.json");
 const rootNames = extractDependencyNames(pkgObj);
 const graph = parsePackageLock("./tests/sample-lockfile.json");
+console.log("direct dependency names:", rootNames.length);
+
+// --- Step 2: resolve full dependency tree ---
 const flattenedGraph = buildDependencyTree(rootNames, graph);
+console.log("total resolved packages:", Object.keys(flattenedGraph).length);
 
-// console.log("total resolved:", Object.keys(flattenedGraph).length);
-// console.log(
-//   "zod entries:",
-//   Object.keys(result).filter((k) => k.startsWith("zod@")),
-// );
-// console.log(result);
-
-const results = await queryOsvBatch(Object.values(flattenedGraph));
-writeFileSync("./tests/results-output.json", JSON.stringify(results, null, 2));
-
-// console.log(JSON.stringify(results, null, 2));
-
+// --- Step 3: check against OSV ---
 const finalizedList = await queryOsvBatch(Object.values(flattenedGraph));
+console.log("vulnerable packages found:", finalizedList.length);
+
+// --- Step 4: dedupe + fetch full advisory details ---
 const uniqueIds = uniqueVulnIDs(finalizedList);
-console.log("unique advisory count:", uniqueIds.size);
+console.log("unique advisories:", uniqueIds.size);
 
 const details = await fetchFullDetails(uniqueIds);
-const firstId = Array.from(uniqueIds)[0];
-console.log(JSON.stringify(details[firstId], null, 2));
+
+// --- Step 5: build the final clean report data ---
+const report = buildVulnerabilityReport(finalizedList, details);
+
+console.log("\n=== SAMPLE REPORT ENTRY ===");
+console.log(JSON.stringify(report[0], null, 2));
+
+console.log("\n=== SUMMARY ===");
+console.log(`${Object.keys(flattenedGraph).length} total dependencies`);
+console.log(`${report.length} vulnerable packages`);
+console.log(`${uniqueIds.size} unique advisories`);
+
+const ghsaResults = await queryGhsaBatch(Object.values(flattenedGraph));
+const finalReport = mergeVulnSources(report, ghsaResults, extractGhsaVulnInfo);
+
+console.log("packages in final merged report:", finalReport.length);
+console.log(JSON.stringify(finalReport, null, 2));
+
+const osvNames = new Set(report.map((r) => r.nameAtVersion));
+const extra = finalReport.filter((r) => !osvNames.has(r.nameAtVersion));
+console.log("Package(s) GHSA found that OSV missed:");
+console.log(JSON.stringify(extra, null, 2));
