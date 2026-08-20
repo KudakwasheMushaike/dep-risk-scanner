@@ -54,18 +54,43 @@ export function uniqueVulnIDs(finalizedList) {
  * Fetches full advisory details (summary, severity, fixed version, etc.)
  * for every ID in parallel, since each fetch is independent of the others.
  *
+ * Each fetch retries up to 3 times on failure (network error, timeout,
+ * non-2xx), since OSV lookups have been observed to fail intermittently
+ * (e.g. transient DNS resolution issues) rather than consistently.
+ *
  * @param {Set<string>} uniqueIds
  * @returns {Promise<Object>} map of { id: fullAdvisoryDetails }
  */
 export async function fetchFullDetails(uniqueIds) {
   const ids = Array.from(uniqueIds);
+  const maxRetries = 3;
 
-  const fetches = ids.map(async (id) => {
-    const response = await fetch(`https://api.osv.dev/v1/vulns/${id}`);
-    const details = await response.json();
-    return [id, details]; // pair the id with its details so we can rebuild a map after Promise.all
-  });
+  async function fetchWithRetry(id) {
+    let lastError;
 
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await fetch(`https://api.osv.dev/v1/vulns/${id}`);
+
+        if (!response.ok) {
+          throw new Error(`OSV returned ${response.status} for ${id}`);
+        }
+
+        return [id, await response.json()];
+      } catch (err) {
+        lastError = err;
+        if (attempt < maxRetries) {
+          console.warn(
+            `Retrying ${id} (attempt ${attempt + 1}/${maxRetries})...`,
+          );
+        }
+      }
+    }
+
+    throw lastError; // all retries exhausted — let it propagate and fail the batch
+  }
+
+  const fetches = ids.map(fetchWithRetry);
   const results = await Promise.all(fetches);
 
   const detailsById = {};
@@ -128,7 +153,7 @@ function splitNameVersion(nameAtVersion) {
  * @param {Object} details - map of advisory IDs to full advisory details
  * @returns {Array<{nameAtVersion: string, vulnerabilities: Array}>} vulnerability report
  */
-function buildVulnerabilityReport(finalizedList, details) {
+export function buildVulnerabilityReport(finalizedList, details) {
   const report = [];
 
   for (const packageVulnEntry of finalizedList) {
