@@ -1,4 +1,3 @@
-// src/report.js
 import { writeFileSync } from "node:fs";
 
 const SEVERITY_ORDER = {
