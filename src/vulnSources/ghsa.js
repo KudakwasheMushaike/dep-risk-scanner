@@ -1,11 +1,4 @@
 const ECOSYSTEM_MAP = { npm: "npm", PyPI: "pip" };
-const GHSA_CONCURRENCY = 10;
-
-class GhsaRateLimitError extends Error {
-  constructor() {
-    super("GHSA rate-limited");
-  }
-}
 
 /**
  *
@@ -27,62 +20,40 @@ async function queryGhsaForDependency(dep) {
     headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
   }
 
-  let response;
   try {
-    response = await fetch(`https://api.github.com/advisories?${params}`, {
-      headers,
-    });
+    const response = await fetch(
+      `https://api.github.com/advisories?${params}`,
+      { headers },
+    );
+
+    if (response.status === 403 || response.status === 429) {
+      console.warn(`  [warn] GHSA rate-limited on ${dep.name}`);
+      return [];
+    }
+    if (!response.ok) {
+      console.warn(
+        `  [warn] GHSA query failed for ${dep.name}: ${response.status}`,
+      );
+      return [];
+    }
+
+    const advisories = await response.json(); // now inside the try, covers malformed responses too
+    return advisories.filter((a) => !a.withdrawn_at);
   } catch (error) {
     console.warn(
-      `  [warn] GHSA query failed for ${dep.name}: ${error.message}`,
+      `  [warn] GHSA request failed for ${dep.name}: ${error.message}`,
     );
     return [];
   }
-
-  if (response.status === 403 || response.status === 429) {
-    throw new GhsaRateLimitError();
-  }
-  if (!response.ok) {
-    console.warn(
-      `  [warn] GHSA query failed for ${dep.name}: ${response.status}`,
-    );
-    return [];
-  }
-
-  const advisories = await response.json();
-  return advisories.filter((a) => !a.withdrawn_at); // drop advisories GitHub has since withdrawn
 }
 
-/**
- *
- * @param {*} dependencies
- * @returns
- */
 export async function queryGhsaBatch(dependencies) {
-  const results = [];
-  for (let i = 0; i < dependencies.length; i += GHSA_CONCURRENCY) {
-    const chunk = dependencies.slice(i, i + GHSA_CONCURRENCY);
-    const fetches = chunk.map(async (dep) => {
-      try {
-        const advisories = await queryGhsaForDependency(dep);
-        return [`${dep.name}@${dep.version}`, advisories, false];
-      } catch (error) {
-        if (error instanceof GhsaRateLimitError) {
-          return [`${dep.name}@${dep.version}`, [], true];
-        }
-        throw error;
-      }
-    });
-    const chunkResults = await Promise.all(fetches);
-    results.push(...chunkResults);
+  const fetches = dependencies.map(async (dep) => {
+    const advisories = await queryGhsaForDependency(dep);
+    return [`${dep.name}@${dep.version}`, advisories];
+  });
 
-    if (chunkResults.some(([, , rateLimited]) => rateLimited)) {
-      console.warn(
-        "  [warn] GHSA rate-limited; set GITHUB_TOKEN to scan more packages",
-      );
-      break;
-    }
-  }
+  const results = await Promise.all(fetches);
 
   const byPackage = {};
   for (const [key, advisories] of results) {
