@@ -10,6 +10,10 @@ import {
   extractDependencyNames,
   parsePackageLock,
 } from "./src/parsers/npm.js";
+import {
+  parseRequirementsTxt,
+  buildPythonDependencyTree,
+} from "./src/parsers/python.js";
 import { buildDependencyTree } from "./src/resolver.js";
 import {
   queryOsvBatch,
@@ -25,6 +29,26 @@ import {
   writeJsonReport,
 } from "./src/report.js";
 import path from "node:path";
+
+async function resolveNpm(manifestPath, manifestDir) {
+  const pkgObj = readPackageFile(manifestPath);
+  const rootNames = extractDependencyNames(pkgObj);
+  const lockfilePath = path.join(manifestDir, "package-lock.json");
+  const graph = parsePackageLock(lockfilePath);
+  const flattenedGraph = buildDependencyTree(rootNames, graph);
+  return { flattenedGraph, skipped: [] };
+}
+
+async function resolvePython(manifestPath) {
+  const { pins, skipped } = await parseRequirementsTxt(manifestPath);
+  if (skipped.length > 0) {
+    console.log(
+      `  [warn] ${skipped.length} requirement(s) could not be resolved to an exact version, skipping: ${skipped.join(", ")}`,
+    );
+  }
+  const flattenedGraph = await buildPythonDependencyTree(pins);
+  return { flattenedGraph, skipped };
+}
 
 function parseArgs(argv) {
   const args = { manifest: null, jsonOut: null };
@@ -51,19 +75,22 @@ async function main() {
   const manifestName = path.basename(manifest);
   const manifestDir = path.dirname(manifest);
 
-  if (manifestName !== "package.json") {
+  console.log(`Resolving dependencies for ${manifest}...`);
+
+  let flattenedGraph;
+  let skipped;
+
+  if (manifestName === "package.json") {
+    ({ flattenedGraph, skipped } = await resolveNpm(manifest, manifestDir));
+  } else if (manifestName === "requirements.txt") {
+    ({ flattenedGraph, skipped } = await resolvePython(manifest));
+  } else {
     console.error(
-      `Only package.json is currently supported (got: ${manifestName}). Python support coming next.`,
+      `Unrecognized manifest '${manifestName}'. Expected package.json or requirements.txt.`,
     );
     process.exit(1);
   }
 
-  console.log(`Resolving dependencies for ${manifest}...`);
-  const pkgObj = readPackageFile(manifest);
-  const rootNames = extractDependencyNames(pkgObj);
-  const lockfilePath = path.join(manifestDir, "package-lock.json");
-  const graph = parsePackageLock(lockfilePath);
-  const flattenedGraph = buildDependencyTree(rootNames, graph);
   console.log(`  Resolved ${Object.keys(flattenedGraph).length} packages.`);
 
   console.log("Querying OSV.dev...");
@@ -80,7 +107,7 @@ async function main() {
     extractGhsaVulnInfo,
   );
 
-  const summary = buildSummary(flattenedGraph, finalReport);
+  const summary = buildSummary(flattenedGraph, finalReport, skipped);
   printConsoleReport(finalReport, summary);
 
   if (jsonOut) {

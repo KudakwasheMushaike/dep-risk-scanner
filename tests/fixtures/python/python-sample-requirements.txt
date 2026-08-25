@@ -1,0 +1,8 @@
+light-s3-client==0.0.41
+urllib3==3.0.0
+requests==2.31.0
+flask==3.0.0
+django==5.0.1
+numpy>=1.20
+# a comment
+-e ./local-package

@@ -17,12 +17,12 @@ const COLOR = {
 const RESET = "\x1b[0m";
 
 /**
- * Computes the summary stats the assignment explicitly asks for:
+ * Computes the summary stats:
  * total dependencies, vulnerable count/percentage, plus a severity
  * breakdown (counted per-vulnerability, not per-package, since one
  * package can carry multiple advisories of different severities).
  */
-export function buildSummary(flattenedGraph, finalReport) {
+export function buildSummary(flattenedGraph, finalReport, skipped = []) {
   const allDeps = Object.values(flattenedGraph);
   const total = allDeps.length;
   const direct = allDeps.filter((d) => d.direct).length;
@@ -43,6 +43,7 @@ export function buildSummary(flattenedGraph, finalReport) {
       ? Number(((finalReport.length / total) * 100).toFixed(1))
       : 0,
     bySeverity,
+    skipped,
   };
 }
 
@@ -76,6 +77,15 @@ export function printConsoleReport(finalReport, summary, useColor = true) {
   if (finalReport.length === 0) {
     console.log("\nNo known vulnerabilities found. \u2713");
     return;
+  }
+
+  if (summary.skipped && summary.skipped.length > 0) {
+    console.log(
+      `\nSkipped ${summary.skipped.length} requirement(s) (unresolvable, not scanned):`,
+    );
+    for (const line of summary.skipped) {
+      console.log(`  - ${line}`);
+    }
   }
 
   console.log("\n--- Vulnerable Packages ---");

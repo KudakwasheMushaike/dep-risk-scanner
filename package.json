@@ -4,6 +4,8 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
+    "manual": "node --env-file=.env scripts/manual-test.js",
+    "manual-py": "node --env-file=.env scripts/manual-test-python.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
