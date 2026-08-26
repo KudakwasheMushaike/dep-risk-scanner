@@ -30,6 +30,13 @@ import {
 } from "./src/report.js";
 import path from "node:path";
 
+/**
+ * Resolves a package.json project into the scanner's flattened npm dependency graph.
+ *
+ * @param {string} manifestPath - Path to the package.json manifest.
+ * @param {string} manifestDir - Directory containing the manifest and package-lock.json.
+ * @returns {Promise<{flattenedGraph: Object, skipped: string[]}>}
+ */
 async function resolveNpm(manifestPath, manifestDir) {
   const pkgObj = readPackageFile(manifestPath);
   const rootNames = extractDependencyNames(pkgObj);
@@ -39,6 +46,12 @@ async function resolveNpm(manifestPath, manifestDir) {
   return { flattenedGraph, skipped: [] };
 }
 
+/**
+ * Resolves a requirements.txt file into the scanner's flattened PyPI dependency graph.
+ *
+ * @param {string} manifestPath - Path to the requirements.txt manifest.
+ * @returns {Promise<{flattenedGraph: Object, skipped: string[]}>}
+ */
 async function resolvePython(manifestPath) {
   const { pins, skipped } = await parseRequirementsTxt(manifestPath);
   if (skipped.length > 0) {
@@ -50,6 +63,12 @@ async function resolvePython(manifestPath) {
   return { flattenedGraph, skipped };
 }
 
+/**
+ * Parses CLI arguments into the manifest path and optional JSON output path.
+ *
+ * @param {string[]} argv - Command-line arguments after the node executable and script path.
+ * @returns {{manifest: string|null, jsonOut: string|null}}
+ */
 function parseArgs(argv) {
   const args = { manifest: null, jsonOut: null };
   for (let i = 0; i < argv.length; i++) {
@@ -62,6 +81,11 @@ function parseArgs(argv) {
   return args;
 }
 
+/**
+ * Runs the dependency risk scanner CLI from argument parsing through reporting.
+ *
+ * @returns {Promise<void>}
+ */
 async function main() {
   const { manifest, jsonOut } = parseArgs(process.argv.slice(2));
 

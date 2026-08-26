@@ -1,13 +1,11 @@
 import { readFileSync } from "node:fs";
 
 /**
- * @param {string} filePath
- * @returns {{pins: {name: string, version: string}[], skipped: string[]}}
+ * Parses exact pins from a requirements.txt file.
+ *
+ * @param {string} filePath - Path to requirements.txt.
+ * @returns {Promise<{pins: {name: string, version: string}[], skipped: string[]}>} exact pins and unscannable lines.
  */
-
-// shapely
-// numpy>=1.24.0
-// opencv-python==4.9.0.80
 export async function parseRequirementsTxt(filePath) {
   const data = readFileSync(filePath, "utf-8");
   const lines = data.split("\n");
@@ -27,6 +25,13 @@ export async function parseRequirementsTxt(filePath) {
   return { pins, skipped };
 }
 
+/**
+ * Fetches package metadata from PyPI for a package or a specific version.
+ *
+ * @param {string} packageName - PyPI package name.
+ * @param {string|null} version - Exact version to check, or null for the latest package metadata.
+ * @returns {Promise<Object|null>} PyPI JSON metadata, or null when unavailable.
+ */
 export async function checkPyPIRegistry(packageName, version) {
   const url = version
     ? `https://pypi.org/pypi/${packageName}/${version}/json`
@@ -40,6 +45,13 @@ export async function checkPyPIRegistry(packageName, version) {
   }
 }
 
+/**
+ * Resolves pinned PyPI packages and their transitive requires_dist dependencies into a flat graph.
+ *
+ * @param {{name: string, version: string}[]} pins - Exact package pins parsed from requirements.txt.
+ * @param {string} [ecosystem="PyPI"] - Ecosystem label used for vulnerability queries.
+ * @returns {Promise<Object.<string, {name: string, version: string, ecosystem: string, direct: boolean, parents: string[]}>>}
+ */
 export async function buildPythonDependencyTree(pins, ecosystem = "PyPI") {
   const resolved = {};
   const visited = new Set();
@@ -94,6 +106,13 @@ export async function buildPythonDependencyTree(pins, ecosystem = "PyPI") {
 
   return resolved;
 }
+
+/**
+ * Extracts package names from PyPI requires_dist requirement strings.
+ *
+ * @param {string[]|null|undefined} requiresDist - Raw requires_dist entries from PyPI metadata.
+ * @returns {string[]} dependency package names.
+ */
 function parseRequiresDist(requiresDist) {
   const names = [];
   for (const raw of requiresDist || []) {

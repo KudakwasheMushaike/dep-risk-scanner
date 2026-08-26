@@ -8,6 +8,11 @@ import {
 const PYTHON_FIXTURE = "./tests/fixtures/python/requirements.txt";
 const RESOLVED_OUTPUT = "./tests/output/python-resolved.json";
 
+/**
+ * Runs the manual Python resolver smoke test and writes the resolved tree fixture output.
+ *
+ * @returns {Promise<void>}
+ */
 async function main() {
   const { pins, skipped } = await parseRequirementsTxt(PYTHON_FIXTURE);
   console.log("pins:", pins);

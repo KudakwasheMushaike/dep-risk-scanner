@@ -1,5 +1,14 @@
 import semver from "semver";
 
+/**
+ * Combines OSV and GHSA vulnerability reports, deduplicating advisories by ID/CVE
+ * and computing one recommended upgrade target per package.
+ *
+ * @param {{nameAtVersion: string, vulnerabilities: Object[]}[]} osvReport - Normalized OSV report entries.
+ * @param {Object.<string, Object[]>} ghsaResults - Raw GHSA advisories keyed by "name@version".
+ * @param {(rawAdvisory: Object) => Object} extractGhsaVulnInfo - Normalizes one GHSA advisory.
+ * @returns {{nameAtVersion: string, vulnerabilities: Object[], recommendedUpgrade: string|null}[]}
+ */
 export function mergeVulnSources(osvReport, ghsaResults, extractGhsaVulnInfo) {
   const merged = {};
   for (const entry of osvReport) {

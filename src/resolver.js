@@ -5,9 +5,10 @@ import { parsePackageLock } from "./parsers/npm.js";
  * specific version-entry of that child applies - there could be multiple version
  * some not necessarily pulled in by that parent
  * optional/peer dependencies will return undefined here
- * @param {Object} graph
- * @param {string} childName
- * @param {string | null} parentName
+ *
+ * @param {Object.<string, {version: string, dev: boolean, parent: string|null, dependencies: string[]}[]>} graph
+ * @param {string} childName - Dependency name being resolved.
+ * @param {string|null} parentName - Parent package requesting the dependency.
  * @returns {{version: string, dev: boolean, parent: string | null, dependencies: string []} | undefined}
  */
 function pickVersionForParent(graph, childName, parentName) {
@@ -21,9 +22,10 @@ function pickVersionForParent(graph, childName, parentName) {
  *  Walks the full dependency tree via BFS< starting from a projects
  * direct dependency names, and produces a flat map of every package used (direct
  * and transitive, with real resolved versions and who pulled each one in)
- * @param {string []} rootNames
- * @param {Object} graph
- * @param {string} [ecosystem= "npm"]
+ *
+ * @param {string[]} rootNames - Direct dependency names from the root manifest.
+ * @param {Object.<string, {version: string, dev: boolean, parent: string|null, dependencies: string[]}[]>} graph - Parsed package-lock graph.
+ * @param {string} [ecosystem="npm"] - Ecosystem label used for vulnerability queries.
  * @returns {Object.<string, {name:string, version: string, ecosystem: string, direct: boolean, parents: string[]}>}
  * keyed by "name@version"
  */

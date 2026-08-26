@@ -1,8 +1,10 @@
 import semver from "semver";
 
 /**
+ * Queries OSV's batch API for vulnerabilities affecting resolved dependencies.
  *
- * @param {{name: string, version: string, ecosystem: string, direct: boolean, parents: string[]}[]} dependencies
+ * @param {{name: string, version: string, ecosystem: string, direct: boolean, parents: string[]}[]} dependencies - Resolved dependencies to check.
+ * @returns {Promise<Object[]>} array of single-key objects mapping "name@version" to OSV vulnerability refs.
  */
 export async function queryOsvBatch(dependencies) {
   const body = {
@@ -65,6 +67,12 @@ export async function fetchFullDetails(uniqueIds) {
   const ids = Array.from(uniqueIds);
   const maxRetries = 3;
 
+  /**
+   * Fetches one OSV advisory with bounded retries for transient failures.
+   *
+   * @param {string} id - OSV vulnerability ID.
+   * @returns {Promise<[string, Object]>} tuple of ID and full advisory details.
+   */
   async function fetchWithRetry(id) {
     let lastError;
 
@@ -100,6 +108,12 @@ export async function fetchFullDetails(uniqueIds) {
   return detailsById;
 }
 
+/**
+ * Normalizes a package name for cross-ecosystem matching.
+ *
+ * @param {string} name - Package name from advisory or dependency metadata.
+ * @returns {string} lowercase package name using hyphen separators.
+ */
 function normalizePackageName(name) {
   return name.toLowerCase().replace(/[-_.]+/g, "-");
 }
