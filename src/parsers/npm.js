@@ -1,9 +1,23 @@
 import { readFileSync } from "node:fs";
 
+/**
+ * Reads and parses a package.json file.
+ *
+ * @param {string} file - Path to package.json.
+ * @returns {Object} parsed package manifest.
+ */
 export function readPackageFile(file) {
   const data = readFileSync(file, "utf-8");
   return JSON.parse(data);
 }
+
+/**
+ * Extracts direct dependency names from package.json dependencies and, optionally, devDependencies.
+ *
+ * @param {Object} pkgObj - Parsed package manifest.
+ * @param {boolean} [includeDev=true] - Whether to include devDependencies.
+ * @returns {string[]} dependency package names.
+ */
 export function extractDependencyNames(pkgObj, includeDev = true) {
   const names = Object.keys(pkgObj.dependencies || {});
   if (includeDev) {
@@ -12,6 +26,12 @@ export function extractDependencyNames(pkgObj, includeDev = true) {
   return names;
 }
 
+/**
+ * Parses package-lock.json into a package graph grouped by dependency name.
+ *
+ * @param {string} file - Path to package-lock.json.
+ * @returns {Object.<string, {version: string, dev: boolean, parent: string|null, dependencies: string[]}[]>}
+ */
 export function parsePackageLock(file) {
   const graph = {};
   const data = readFileSync(file, "utf-8");
@@ -41,30 +61,17 @@ export function parsePackageLock(file) {
   return graph;
 }
 
+/**
+ * Resolves which installed child package entry applies for a requesting parent.
+ *
+ * @param {Object.<string, {version: string, parent: string|null, dependencies: string[]}[]>} graph - Parsed npm lockfile graph.
+ * @param {string} childName - Dependency name being resolved.
+ * @param {string|null} parentName - Parent package requesting the dependency.
+ * @returns {{version: string, parent: string|null, dependencies: string[]}|undefined}
+ */
 function resolveChild(graph, childName, parentName) {
   const candidates = graph[childName] || [];
   const nested = candidates.find((c) => c.parent === parentName);
   const chosen = nested || candidates.find((c) => c.parent === null);
   return chosen;
 }
-
-// function traverseGraph(graph){
-//   //to return
-//   // {name, version, ecosystem, direct, parents}
-//   // get all the top level packages/keys
-//   const flattenedGraph = [];
-//   const visited = new Set()
-//   const topLevelPkgNames = Object.keys(graph)
-//   const queue = topLevelPkgNames.map((key) => ({name:key, parentName: null, direct: true}))
-//   while(queue.length){
-//     let {name, parentName} = queue.shift();
-//     const correctChild = resolveChild(graph, name, parentName);
-//     const dependencies = graph[correctChild].dependencies
-//     for (let dependent of dependencies){
-//         flattenedGraph.push({name, dependent.version, ecosystem: "npm", direct, parentName})
-
-//     }
-
-//   }
-
-// }

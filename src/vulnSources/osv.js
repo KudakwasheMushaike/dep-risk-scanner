@@ -1,8 +1,10 @@
 import semver from "semver";
 
 /**
+ * Queries OSV's batch API for vulnerabilities affecting resolved dependencies.
  *
- * @param {{name: string, version: string, ecosystem: string, direct: boolean, parents: string[]}[]} dependencies
+ * @param {{name: string, version: string, ecosystem: string, direct: boolean, parents: string[]}[]} dependencies - Resolved dependencies to check.
+ * @returns {Promise<Object[]>} array of single-key objects mapping "name@version" to OSV vulnerability refs.
  */
 export async function queryOsvBatch(dependencies) {
   const body = {
@@ -65,6 +67,12 @@ export async function fetchFullDetails(uniqueIds) {
   const ids = Array.from(uniqueIds);
   const maxRetries = 3;
 
+  /**
+   * Fetches one OSV advisory with bounded retries for transient failures.
+   *
+   * @param {string} id - OSV vulnerability ID.
+   * @returns {Promise<[string, Object]>} tuple of ID and full advisory details.
+   */
   async function fetchWithRetry(id) {
     let lastError;
 
@@ -101,24 +109,35 @@ export async function fetchFullDetails(uniqueIds) {
 }
 
 /**
- * Finds the highest fixed version for a given package from an OSV advisory record.
- * Searches through affected package entries, extracts all fixed versions, and returns
- * the highest one according to semantic versioning.
+ * Normalizes a package name for cross-ecosystem matching.
+ *
+ * @param {string} name - Package name from advisory or dependency metadata.
+ * @returns {string} lowercase package name using hyphen separators.
+ */
+function normalizePackageName(name) {
+  return name.toLowerCase().replace(/[-_.]+/g, "-");
+}
+
+/**
+ * Finds the highest fixed release for a given package from an OSV advisory.
+ * OSV ranges can include non-release fixed values, such as Git commit hashes;
+ * those are useful in the advisory but cannot be used as package upgrade targets.
  *
  * @param {Object[]} affected - array of affected entries from OSV advisory
  * @param {string} packageName - the package name to find a fix for
- * @returns {string|null} the highest fixed version, or null if no fix found
+ * @returns {string|null} the highest fixed release, or null if no fix found
  */
-function findFixedVersion(affected, packageName) {
+function findFixedVersion(affected = [], packageName) {
   const fixedVersions = [];
+  const targetName = normalizePackageName(packageName);
 
   const matchingEntries = affected.filter(
-    (a) => a.package.name === packageName,
+    (a) => normalizePackageName(a.package.name) === targetName,
   );
   for (const entry of matchingEntries) {
-    for (const range of entry.ranges) {
-      for (const event of range.events) {
-        if (event.fixed) {
+    for (const range of entry.ranges || []) {
+      for (const event of range.events || []) {
+        if (event.fixed && semver.valid(event.fixed)) {
           fixedVersions.push(event.fixed);
         }
       }
@@ -127,7 +146,6 @@ function findFixedVersion(affected, packageName) {
 
   if (fixedVersions.length === 0) return null;
 
-  // sort descending by semver, return the highest
   fixedVersions.sort(semver.rcompare);
   return fixedVersions[0];
 }
@@ -160,17 +178,29 @@ export function buildVulnerabilityReport(finalizedList, details) {
     const [nameAtVersion, vulnRefs] = Object.entries(packageVulnEntry)[0];
     const { name } = splitNameVersion(nameAtVersion);
 
-    const vulnDetails = vulnRefs.map((ref) => {
+    // Dedup within this package's own vuln list: OSV's batch response can
+    // legitimately return multiple advisory IDs (e.g. a GHSA- one and a
+    // PYSEC- one) that describe the SAME real vulnerability, cross-linked
+    // via `aliases`. Without this, the same issue gets counted 2-4x.
+    const seenIds = new Set();
+    const vulnDetails = [];
+
+    for (const ref of vulnRefs) {
       const rawAdvisory = details[ref.id];
-      return extractVulnInfo(rawAdvisory, name);
-    });
+      if (!rawAdvisory) continue;
+
+      const allIds = [rawAdvisory.id, ...(rawAdvisory.aliases || [])];
+      if (allIds.some((id) => seenIds.has(id))) continue; // already counted under a different id
+
+      allIds.forEach((id) => seenIds.add(id));
+      vulnDetails.push(extractVulnInfo(rawAdvisory, name));
+    }
 
     report.push({ nameAtVersion, vulnerabilities: vulnDetails });
   }
 
   return report;
 }
-
 /**
  * Extracts the fields we need from a raw OSV advisory record, scoped
  * to one specific package name (since one advisory can cover multiple
@@ -186,9 +216,14 @@ function extractVulnInfo(rawAdvisory, packageName) {
   const advisoryUrl = `https://osv.dev/vulnerability/${rawAdvisory.id}`;
   const fixedVersion = findFixedVersion(rawAdvisory.affected, packageName);
 
+  const summary = [rawAdvisory.summary, rawAdvisory.details]
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .find((value) => value && value !== "undefined");
+
   return {
     id: rawAdvisory.id,
-    summary: rawAdvisory.summary,
+    aliases: rawAdvisory.aliases || [],
+    summary: summary || "No description available",
     severity,
     cve,
     advisoryUrl,

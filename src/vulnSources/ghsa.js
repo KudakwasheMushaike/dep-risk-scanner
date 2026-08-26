@@ -1,9 +1,10 @@
 const ECOSYSTEM_MAP = { npm: "npm", PyPI: "pip" };
 
 /**
+ * Queries GitHub Security Advisories for one resolved dependency.
  *
- * @param {*} dep
- * @returns
+ * @param {{name: string, version: string, ecosystem: string}} dep - Resolved dependency to check.
+ * @returns {Promise<Object[]>} active GHSA advisories affecting the dependency.
  */
 async function queryGhsaForDependency(dep) {
   const ecosystem = ECOSYSTEM_MAP[dep.ecosystem];
@@ -47,6 +48,12 @@ async function queryGhsaForDependency(dep) {
   }
 }
 
+/**
+ * Queries GitHub Security Advisories for every dependency in parallel.
+ *
+ * @param {{name: string, version: string, ecosystem: string}[]} dependencies - Resolved dependencies to check.
+ * @returns {Promise<Object.<string, Object[]>>} raw advisories keyed by "name@version".
+ */
 export async function queryGhsaBatch(dependencies) {
   const fetches = dependencies.map(async (dep) => {
     const advisories = await queryGhsaForDependency(dep);
@@ -64,6 +71,12 @@ export async function queryGhsaBatch(dependencies) {
   return byPackage;
 }
 
+/**
+ * Normalizes a raw GitHub Security Advisory into the scanner's vulnerability shape.
+ *
+ * @param {Object} rawAdvisory - Advisory returned by the GitHub advisories API.
+ * @returns {{id: string, summary: string, severity: string, cve: string|null, advisoryUrl: string, fixedVersion: string|null}}
+ */
 export function extractGhsaVulnInfo(rawAdvisory) {
   let fixedVersion = null;
   for (const vuln of rawAdvisory.vulnerabilities || []) {

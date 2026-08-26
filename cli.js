@@ -10,6 +10,10 @@ import {
   extractDependencyNames,
   parsePackageLock,
 } from "./src/parsers/npm.js";
+import {
+  parseRequirementsTxt,
+  buildPythonDependencyTree,
+} from "./src/parsers/python.js";
 import { buildDependencyTree } from "./src/resolver.js";
 import {
   queryOsvBatch,
@@ -26,6 +30,45 @@ import {
 } from "./src/report.js";
 import path from "node:path";
 
+/**
+ * Resolves a package.json project into the scanner's flattened npm dependency graph.
+ *
+ * @param {string} manifestPath - Path to the package.json manifest.
+ * @param {string} manifestDir - Directory containing the manifest and package-lock.json.
+ * @returns {Promise<{flattenedGraph: Object, skipped: string[]}>}
+ */
+async function resolveNpm(manifestPath, manifestDir) {
+  const pkgObj = readPackageFile(manifestPath);
+  const rootNames = extractDependencyNames(pkgObj);
+  const lockfilePath = path.join(manifestDir, "package-lock.json");
+  const graph = parsePackageLock(lockfilePath);
+  const flattenedGraph = buildDependencyTree(rootNames, graph);
+  return { flattenedGraph, skipped: [] };
+}
+
+/**
+ * Resolves a requirements.txt file into the scanner's flattened PyPI dependency graph.
+ *
+ * @param {string} manifestPath - Path to the requirements.txt manifest.
+ * @returns {Promise<{flattenedGraph: Object, skipped: string[]}>}
+ */
+async function resolvePython(manifestPath) {
+  const { pins, skipped } = await parseRequirementsTxt(manifestPath);
+  if (skipped.length > 0) {
+    console.log(
+      `  [warn] ${skipped.length} requirement(s) could not be resolved to an exact version, skipping: ${skipped.join(", ")}`,
+    );
+  }
+  const flattenedGraph = await buildPythonDependencyTree(pins);
+  return { flattenedGraph, skipped };
+}
+
+/**
+ * Parses CLI arguments into the manifest path and optional JSON output path.
+ *
+ * @param {string[]} argv - Command-line arguments after the node executable and script path.
+ * @returns {{manifest: string|null, jsonOut: string|null}}
+ */
 function parseArgs(argv) {
   const args = { manifest: null, jsonOut: null };
   for (let i = 0; i < argv.length; i++) {
@@ -38,6 +81,11 @@ function parseArgs(argv) {
   return args;
 }
 
+/**
+ * Runs the dependency risk scanner CLI from argument parsing through reporting.
+ *
+ * @returns {Promise<void>}
+ */
 async function main() {
   const { manifest, jsonOut } = parseArgs(process.argv.slice(2));
 
@@ -51,19 +99,22 @@ async function main() {
   const manifestName = path.basename(manifest);
   const manifestDir = path.dirname(manifest);
 
-  if (manifestName !== "package.json") {
+  console.log(`Resolving dependencies for ${manifest}...`);
+
+  let flattenedGraph;
+  let skipped;
+
+  if (manifestName === "package.json") {
+    ({ flattenedGraph, skipped } = await resolveNpm(manifest, manifestDir));
+  } else if (manifestName === "requirements.txt") {
+    ({ flattenedGraph, skipped } = await resolvePython(manifest));
+  } else {
     console.error(
-      `Only package.json is currently supported (got: ${manifestName}). Python support coming next.`,
+      `Unrecognized manifest '${manifestName}'. Expected package.json or requirements.txt.`,
     );
     process.exit(1);
   }
 
-  console.log(`Resolving dependencies for ${manifest}...`);
-  const pkgObj = readPackageFile(manifest);
-  const rootNames = extractDependencyNames(pkgObj);
-  const lockfilePath = path.join(manifestDir, "package-lock.json");
-  const graph = parsePackageLock(lockfilePath);
-  const flattenedGraph = buildDependencyTree(rootNames, graph);
   console.log(`  Resolved ${Object.keys(flattenedGraph).length} packages.`);
 
   console.log("Querying OSV.dev...");
@@ -80,7 +131,7 @@ async function main() {
     extractGhsaVulnInfo,
   );
 
-  const summary = buildSummary(flattenedGraph, finalReport);
+  const summary = buildSummary(flattenedGraph, finalReport, skipped);
   printConsoleReport(finalReport, summary);
 
   if (jsonOut) {

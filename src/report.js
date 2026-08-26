@@ -17,12 +17,17 @@ const COLOR = {
 const RESET = "\x1b[0m";
 
 /**
- * Computes the summary stats the assignment explicitly asks for:
+ * Computes the summary stats:
  * total dependencies, vulnerable count/percentage, plus a severity
  * breakdown (counted per-vulnerability, not per-package, since one
  * package can carry multiple advisories of different severities).
+ *
+ * @param {Object.<string, {direct: boolean}>} flattenedGraph - Flattened dependency map keyed by package identity.
+ * @param {{vulnerabilities: {severity: string}[]}[]} finalReport - Merged vulnerable package report.
+ * @param {string[]} [skipped=[]] - Requirements that could not be resolved and scanned.
+ * @returns {{totalDependencies: number, directDependencies: number, transitiveDependencies: number, vulnerablePackages: number, vulnerablePercentage: number, bySeverity: Object.<string, number>, skipped: string[]}}
  */
-export function buildSummary(flattenedGraph, finalReport) {
+export function buildSummary(flattenedGraph, finalReport, skipped = []) {
   const allDeps = Object.values(flattenedGraph);
   const total = allDeps.length;
   const direct = allDeps.filter((d) => d.direct).length;
@@ -43,9 +48,16 @@ export function buildSummary(flattenedGraph, finalReport) {
       ? Number(((finalReport.length / total) * 100).toFixed(1))
       : 0,
     bySeverity,
+    skipped,
   };
 }
 
+/**
+ * Orders vulnerable package entries by their worst vulnerability severity.
+ *
+ * @param {{vulnerabilities: {severity: string}[]}[]} finalReport - Vulnerable package report entries.
+ * @returns {{vulnerabilities: {severity: string}[]}[]} sorted report entries.
+ */
 function sortBySeverity(finalReport) {
   const worstSeverity = (pkg) =>
     Math.min(
@@ -54,6 +66,14 @@ function sortBySeverity(finalReport) {
   return [...finalReport].sort((a, b) => worstSeverity(a) - worstSeverity(b));
 }
 
+/**
+ * Prints a human-readable dependency risk report to stdout.
+ *
+ * @param {{nameAtVersion: string, recommendedUpgrade?: string|null, vulnerabilities: Object[]}[]} finalReport - Merged vulnerable package report.
+ * @param {Object} summary - Summary produced by buildSummary.
+ * @param {boolean} [useColor=true] - Whether to color severity labels with ANSI codes.
+ * @returns {void}
+ */
 export function printConsoleReport(finalReport, summary, useColor = true) {
   const c = (severity, text) =>
     useColor ? `${COLOR[severity] || ""}${text}${RESET}` : text;
@@ -76,6 +96,15 @@ export function printConsoleReport(finalReport, summary, useColor = true) {
   if (finalReport.length === 0) {
     console.log("\nNo known vulnerabilities found. \u2713");
     return;
+  }
+
+  if (summary.skipped && summary.skipped.length > 0) {
+    console.log(
+      `\nSkipped ${summary.skipped.length} requirement(s) (unresolvable, not scanned):`,
+    );
+    for (const line of summary.skipped) {
+      console.log(`  - ${line}`);
+    }
   }
 
   console.log("\n--- Vulnerable Packages ---");
@@ -102,6 +131,14 @@ export function printConsoleReport(finalReport, summary, useColor = true) {
   }
 }
 
+/**
+ * Writes the dependency risk report and summary to a JSON file.
+ *
+ * @param {Object[]} finalReport - Merged vulnerable package report.
+ * @param {Object} summary - Summary produced by buildSummary.
+ * @param {string} outputPath - Destination path for the JSON report.
+ * @returns {void}
+ */
 export function writeJsonReport(finalReport, summary, outputPath) {
   const json = {
     summary,

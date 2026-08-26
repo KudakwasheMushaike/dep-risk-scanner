@@ -1,4 +1,3 @@
-// tests/manual-test.js
 import {
   readPackageFile,
   extractDependencyNames,
@@ -17,10 +16,12 @@ import {
 } from "../src/vulnSources/ghsa.js";
 import { mergeVulnSources } from "../src/merge.js";
 
+const NPM_FIXTURE_DIR = "./tests/fixtures/npm";
+
 // --- Step 1: parse manifests ---
-const pkgObj = readPackageFile("./tests/sample-package.json");
+const pkgObj = readPackageFile(`${NPM_FIXTURE_DIR}/package.json`);
 const rootNames = extractDependencyNames(pkgObj);
-const graph = parsePackageLock("./tests/sample-lockfile.json");
+const graph = parsePackageLock(`${NPM_FIXTURE_DIR}/package-lock.json`);
 console.log("direct dependency names:", rootNames.length);
 
 // --- Step 2: resolve full dependency tree ---
